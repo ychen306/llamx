@@ -40,7 +40,7 @@ static Value *emitLoadStoreConfig(Value *Ptr, Constant *Reg,
   auto *Int64Ty = IRB.getInt64Ty();
   auto *Addr = IRB.CreatePointerCast(Ptr, Int64Ty);
   auto *RegNum = IRB.CreateZExt(Reg, Int64Ty);
-  auto *Operand = IRB.CreateOr(Addr, IRB.CreateShl(RegNum, 56));
+  auto *Operand = IRB.CreateOr(Addr, IRB.CreateShl(RegNum, 56), "myor");
   return Operand;
 }
 

@@ -35,3 +35,6 @@ configure_file(${CMAKE_SOURCE_DIR}/utils/llamx-clang.in
 
 configure_file(${CMAKE_SOURCE_DIR}/utils/llamx-opt.in
                ${CMAKE_BINARY_DIR}/llamx-opt)
+
+configure_file(${CMAKE_SOURCE_DIR}/test/lit.site.cfg.in
+               ${CMAKE_BINARY_DIR}/test/lit.site.cfg)
