@@ -2,10 +2,10 @@
 
 ; CHECK:   [[ADDR:%.*]] = ptrtoint ptr %0 to i64
 ; CHECK:   [[OR1:%.*]] = or i64 [[ADDR]], 504403158265495552
-; CHECK:   call void asm sideeffect ".word (0x201000 + ($0 << 5) + 0$1 - ((0$1 >> 4) * 6))", "i,r,~{memory}"(i32 0, i64 [[OR1]])
+; CHECK:   call void asm sideeffect ".word (0x201000 + ($0 << 5) + 0$1 - ((0$1 >> 4) * 6))", "i,r,~{memory}"(i32 1, i64 [[OR1]])
 ; CHECK:   [[ADDR2:%.*]] = ptrtoint ptr %1 to i64
 ; CHECK:   [[OR2:%.*]] = or i64 [[ADDR2]], 504403158265495552
-; CHECK:   call void asm sideeffect ".word (0x201000 + ($0 << 5) + 0$1 - ((0$1 >> 4) * 6))", "i,r,~{memory}"(i32 2, i64 [[OR2]])
+; CHECK:   call void asm sideeffect ".word (0x201000 + ($0 << 5) + 0$1 - ((0$1 >> 4) * 6))", "i,r,~{memory}"(i32 3, i64 [[OR2]])
 ; CHECK:   ret void
 
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
@@ -13,14 +13,14 @@ target triple = "arm64-apple-macosx13.0.0"
 
 ; Function Attrs: nounwind ssp uwtable
 define void @amx_copy(ptr noundef %0, ptr noundef %1) local_unnamed_addr #0 {
-  tail call void @amx_ldx(i32 noundef 7, ptr noundef %0) #2
-  tail call void @amx_stx(ptr noundef %1, i32 noundef 7) #2
+  tail call void @amx_ldy(i32 noundef 7, ptr noundef %0) #2
+  tail call void @amx_sty(ptr noundef %1, i32 noundef 7) #2
   ret void
 }
 
-declare void @amx_ldx(i32 noundef, ptr noundef) local_unnamed_addr #1
+declare void @amx_ldy(i32 noundef, ptr noundef) local_unnamed_addr #1
 
-declare void @amx_stx(ptr noundef, i32 noundef) local_unnamed_addr #1
+declare void @amx_sty(ptr noundef, i32 noundef) local_unnamed_addr #1
 
 attributes #0 = { nounwind ssp uwtable "frame-pointer"="non-leaf" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+crc,+crypto,+dotprod,+fp-armv8,+fp16fml,+fullfp16,+lse,+neon,+ras,+rcpc,+rdm,+sha2,+sha3,+sm4,+v8.5a,+zcm,+zcz" }
 attributes #1 = { "frame-pointer"="non-leaf" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+crc,+crypto,+dotprod,+fp-armv8,+fp16fml,+fullfp16,+lse,+neon,+ras,+rcpc,+rdm,+sha2,+sha3,+sm4,+v8.5a,+zcm,+zcz" }

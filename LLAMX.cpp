@@ -32,7 +32,9 @@ static void buildPasses(PassBuilder &PB) {
 
 enum AMXOpcode {
   LDX = 0,
+  LDY = 1,
   STX = 2,
+  STY = 3
 };
 
 static Value *emitLoadStoreConfig(Value *Ptr, Constant *Reg,
@@ -62,11 +64,25 @@ static void lowerLDX(Constant *DestReg, Value *Ptr, Instruction *InsertBefore) {
   emitAMX(AMXOpcode::LDX, emitLoadStoreConfig(Ptr, DestReg, IRB), IRB);
 }
 
+static void lowerLDY(Constant *DestReg, Value *Ptr, Instruction *InsertBefore) {
+  errs() << "lowering LDY: dest reg = " << *DestReg << ", ptr = " << *Ptr
+         << '\n';
+  IRBuilder<> IRB(InsertBefore);
+  emitAMX(AMXOpcode::LDY, emitLoadStoreConfig(Ptr, DestReg, IRB), IRB);
+}
+
 static void lowerSTX(Value *Ptr, Constant *SrcReg, Instruction *InsertBefore) {
   errs() << "lowering STX: dest ptr = " << *Ptr << ", src reg = " << *SrcReg
          << '\n';
   IRBuilder<> IRB(InsertBefore);
   emitAMX(AMXOpcode::STX, emitLoadStoreConfig(Ptr, SrcReg, IRB), IRB);
+}
+
+static void lowerSTY(Value *Ptr, Constant *SrcReg, Instruction *InsertBefore) {
+  errs() << "lowering STY: dest ptr = " << *Ptr << ", src reg = " << *SrcReg
+         << '\n';
+  IRBuilder<> IRB(InsertBefore);
+  emitAMX(AMXOpcode::STY, emitLoadStoreConfig(Ptr, SrcReg, IRB), IRB);
 }
 
 PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
@@ -89,6 +105,15 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
         assert(Ptr->getType()->isPointerTy());
 
         lowerLDX(cast<ConstantInt>(DestReg), Ptr, &I /*insert before*/);
+      } else if (Callee->getName() == "amx_ldy") {
+        auto *DestReg = CI->getArgOperand(0);
+        auto *Ptr = CI->getArgOperand(1);
+
+        assert(DestReg->getType()->isIntegerTy(32));
+        assert(isa<ConstantInt>(DestReg));
+        assert(Ptr->getType()->isPointerTy());
+
+        lowerLDY(cast<ConstantInt>(DestReg), Ptr, &I /*insert before*/);
       } else if (Callee->getName() == "amx_stx") {
         auto *DestPtr = CI->getArgOperand(0);
         auto *SrcReg = CI->getArgOperand(1);
@@ -97,6 +122,14 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
         assert(isa<ConstantInt>(SrcReg));
 
         lowerSTX(DestPtr, cast<ConstantInt>(SrcReg), &I /*insert before*/);
+      } else if (Callee->getName() == "amx_sty") {
+        auto *DestPtr = CI->getArgOperand(0);
+        auto *SrcReg = CI->getArgOperand(1);
+
+        assert(SrcReg->getType()->isIntegerTy(32));
+        assert(isa<ConstantInt>(SrcReg));
+
+        lowerSTY(DestPtr, cast<ConstantInt>(SrcReg), &I /*insert before*/);
       } else {
         llvm_unreachable("don't know how to lower this intrinsic");
       }
