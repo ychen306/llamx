@@ -34,7 +34,11 @@ enum AMXOpcode {
   LDX = 0,
   LDY = 1,
   STX = 2,
-  STY = 3
+  STY = 3,
+  LDZ = 4,
+  STZ = 5,
+  LDZI = 6,
+  STZI = 7
 };
 
 static Value *emitLoadStoreConfig(Value *Ptr, Constant *Reg,
@@ -85,6 +89,34 @@ static void lowerSTY(Value *Ptr, Constant *SrcReg, Instruction *InsertBefore) {
   emitAMX(AMXOpcode::STY, emitLoadStoreConfig(Ptr, SrcReg, IRB), IRB);
 }
 
+static void lowerLDZ(Constant *DestReg, Value *Ptr, Instruction *InsertBefore) {
+  errs() << "lowering LDZ: dest reg = " << *DestReg << ", ptr = " << *Ptr
+         << '\n';
+  IRBuilder<> IRB(InsertBefore);
+  emitAMX(AMXOpcode::LDZ, emitLoadStoreConfig(Ptr, DestReg, IRB), IRB);
+}
+
+static void lowerSTZ(Value *Ptr, Constant *SrcReg, Instruction *InsertBefore) {
+  errs() << "lowering STZ: dest ptr = " << *Ptr << ", src reg = " << *SrcReg
+         << '\n';
+  IRBuilder<> IRB(InsertBefore);
+  emitAMX(AMXOpcode::STZ, emitLoadStoreConfig(Ptr, SrcReg, IRB), IRB);
+}
+
+static void lowerLDZI(Constant *DestReg, Value *Ptr, Instruction *InsertBefore) {
+  errs() << "lowering LDZ: dest reg/half = " << *DestReg << ", ptr = " << *Ptr
+         << '\n';
+  IRBuilder<> IRB(InsertBefore);
+  emitAMX(AMXOpcode::LDZI, emitLoadStoreConfig(Ptr, DestReg, IRB), IRB);
+}
+
+static void lowerSTZI(Value *Ptr, Constant *SrcReg, Instruction *InsertBefore) {
+  errs() << "lowering STZ: dest ptr = " << *Ptr << ", src reg/half = " << *SrcReg
+         << '\n';
+  IRBuilder<> IRB(InsertBefore);
+  emitAMX(AMXOpcode::STZI, emitLoadStoreConfig(Ptr, SrcReg, IRB), IRB);
+}
+
 PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
   errs() << "!!! processing " << F.getName() << '\n';
   std::vector<Instruction *> DeadInsts;
@@ -130,6 +162,40 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
         assert(isa<ConstantInt>(SrcReg));
 
         lowerSTY(DestPtr, cast<ConstantInt>(SrcReg), &I /*insert before*/);
+      } else if (Callee->getName() == "amx_ldz") {
+        auto *DestReg = CI->getArgOperand(0);
+        auto *Ptr = CI->getArgOperand(1);
+
+        assert(DestReg->getType()->isIntegerTy(32));
+        assert(isa<ConstantInt>(DestReg));
+        assert(Ptr->getType()->isPointerTy());
+
+        lowerLDZ(cast<ConstantInt>(DestReg), Ptr, &I /*insert before*/);
+      } else if (Callee->getName() == "amx_stz") {
+        auto *DestPtr = CI->getArgOperand(0);
+        auto *SrcReg = CI->getArgOperand(1);
+
+        assert(SrcReg->getType()->isIntegerTy(32));
+        assert(isa<ConstantInt>(SrcReg));
+
+        lowerSTZ(DestPtr, cast<ConstantInt>(SrcReg), &I /*insert before*/);
+      } else if (Callee->getName() == "amx_ldzi") {
+        auto *DestReg = CI->getArgOperand(0);
+        auto *Ptr = CI->getArgOperand(1);
+
+        assert(DestReg->getType()->isIntegerTy(32));
+        assert(isa<ConstantInt>(DestReg));
+        assert(Ptr->getType()->isPointerTy());
+
+        lowerLDZI(cast<ConstantInt>(DestReg), Ptr, &I /*insert before*/);
+      } else if (Callee->getName() == "amx_stzi") {
+        auto *DestPtr = CI->getArgOperand(0);
+        auto *SrcReg = CI->getArgOperand(1);
+
+        assert(SrcReg->getType()->isIntegerTy(32));
+        assert(isa<ConstantInt>(SrcReg));
+
+        lowerSTZI(DestPtr, cast<ConstantInt>(SrcReg), &I /*insert before*/);
       } else {
         llvm_unreachable("don't know how to lower this intrinsic");
       }
