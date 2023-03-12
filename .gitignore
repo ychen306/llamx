@@ -1,3 +1,16 @@
+.*
 build/*
+misc/*
 CMakeFiles/*
 test/*/Output/*
+*.out
+
+CMakelists.txt
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+libLLAMX.so
+llamx-clang
+llamx-clang++
+llamx-opt
+Makefile

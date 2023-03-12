@@ -5,6 +5,8 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "LLAMX.h"
+
 using namespace llvm;
 
 namespace {
@@ -29,17 +31,6 @@ static void buildPasses(PassBuilder &PB) {
         FPM.addPass(AMXLowering());
       });
 }
-
-enum AMXOpcode {
-  LDX = 0,
-  LDY = 1,
-  STX = 2,
-  STY = 3,
-  LDZ = 4,
-  STZ = 5,
-  LDZI = 6,
-  STZI = 7
-};
 
 static Value *emitLoadStoreConfig(Value *Ptr, Constant *Reg,
                                   IRBuilderBase &IRB) {
