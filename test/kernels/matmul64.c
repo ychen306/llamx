@@ -19,7 +19,7 @@ void matmul64(double Z[8][8], double X[8][8], double Y[8][8]) {
   for (int i = 0; i < 8; i++) {
     amx_ldx(i, X[i]);
     amx_ldy(i, Y[i]);
-    amx_fma64(zcol, i, i);
+    amx_fma64_mat(zcol, i, i);
   }
   for (int j = 0; j < 8; j++) {
     amx_stz(Z[j], 8 * j + zcol);

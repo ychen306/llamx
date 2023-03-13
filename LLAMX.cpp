@@ -61,6 +61,15 @@ static Value *emitFMAConfig(Value *XReg, Value *YReg, Value *ZReg,
   return emitConfig({{XRegNum, 16}, {YRegNum, 6}, {ZRegNum, 20}, {OpTypeNum, 27}, {ModeNum, 63}}, IRB);
 }
 
+static Value *emitExtrConfig(Value *DstReg, Value *SrcReg, int isDestY, int isSrcXY, IRBuilderBase &IRB) {
+  auto *Int64Ty = IRB.getInt64Ty();
+  auto *DstRegNum = IRB.CreateZExt(DstReg, Int64Ty);
+  auto *SrcRegNum = IRB.CreateZExt(SrcReg, Int64Ty);
+  Value *isSrcXYNum = IRB.getInt64(isSrcXY);
+  
+  return emitConfig({{DstRegNum, (isDestY ? 6 : 16)}, {SrcRegNum, 20}, {isSrcXYNum, 27}}, IRB);
+}
+
 static void emitAMX(AMXOpcode Opcode, Value *Operand, IRBuilderBase &IRB) {
   auto *VoidTy = IRB.getVoidTy();
   auto *Int32Ty = IRB.getInt32Ty();
@@ -82,7 +91,7 @@ static void lowerLoad(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode)
 
   IRBuilder<> IRB(InsertBefore);
 
-  emitAMX(Opcode, emitLoadStoreConfig(SrcPtr, (DestReg), IRB), IRB);
+  emitAMX(Opcode, emitLoadStoreConfig(SrcPtr, DestReg, IRB), IRB);
 }
 
 static void lowerStore(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode) {
@@ -95,10 +104,10 @@ static void lowerStore(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode
 
   IRBuilder<> IRB(InsertBefore);
 
-  emitAMX(Opcode, emitLoadStoreConfig(DestPtr, (SrcReg), IRB), IRB);
+  emitAMX(Opcode, emitLoadStoreConfig(DestPtr, SrcReg, IRB), IRB);
 }
 
-static void lowerFma(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode) {
+static void lowerFloatOp(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode, int ALUOp, int isVectorOp) {
   auto *XReg = CI->getArgOperand(1);
   auto *YReg = CI->getArgOperand(2);
   auto *ZReg = CI->getArgOperand(0);
@@ -113,13 +122,25 @@ static void lowerFma(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode) 
   IRBuilder<> IRB(InsertBefore);
 
   emitAMX(Opcode, emitFMAConfig(
-    (XReg),
-    (YReg),
-    (ZReg),
-    0, // bit27-29
-    0, // bit63
+    XReg,
+    YReg,
+    ZReg,
+    ALUOp, // bit27-29
+    isVectorOp, // bit63
     IRB
   ), IRB);
+}
+
+static void lowerExtr(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode, int isDestY, int isSrcXY) {
+  auto *DstReg = CI->getArgOperand(0);
+  auto *SrcReg = CI->getArgOperand(1);
+
+  assert(DstReg->getType()->isIntegerTy(32));
+  assert(SrcReg->getType()->isIntegerTy(32));
+
+  IRBuilder<> IRB(InsertBefore);
+  
+  emitAMX(Opcode, emitExtrConfig(DstReg, SrcReg, isDestY, isSrcXY, IRB), IRB);
 }
 
 PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
@@ -133,6 +154,8 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
       auto *Callee = CI->getCalledFunction();
       if (!Callee || !Callee->getName().startswith("amx_"))
         continue;
+
+      // Loads and stores
       if (Callee->getName() == "amx_ldx") {
         lowerLoad(CI, &I, AMXOpcode::LDX);
       } else if (Callee->getName() == "amx_ldy") {
@@ -149,12 +172,50 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
         lowerLoad(CI, &I, AMXOpcode::LDZI);
       } else if (Callee->getName() == "amx_stzi") {
         lowerStore(CI, &I, AMXOpcode::STZI);
-      } else if (Callee->getName() == "amx_fma64") {
-        lowerFma(CI, &I, AMXOpcode::FMA64);
-      } else if (Callee->getName() == "amx_fma32") {
-        lowerFma(CI, &I, AMXOpcode::FMA32);
-      } else if (Callee->getName() == "amx_fma16") {
-        lowerFma(CI, &I, AMXOpcode::FMA16);
+      } 
+      
+      // Moves
+      else if (Callee->getName() == "amx_mvxy") {
+        lowerExtr(CI, &I, AMXOpcode::EXTRY, 1 /*isDestY*/, 1 /*IsSrcXY*/);
+      } else if (Callee->getName() == "amx_mvyx") {
+        lowerExtr(CI, &I, AMXOpcode::EXTRX, 0 /*isDestY*/, 1 /*IsSrcXY*/);
+      } 
+
+      // else if (Callee->getName() == "amx_mvxz") {
+      //   lowerFloatOp(CI, &I, AMXOpcode::FMA64, 3 /*ALUOp*/, 1 /*isVectorOp*/); // crashes
+      // } else if (Callee->getName() == "amx_mvyz") {
+      //   lowerFloatOp(CI, &I, AMXOpcode::FMA64, 5 /*ALUOp*/, 1 /*isVectorOp*/); // crashes
+      // } else if (Callee->getName() == "amx_mvzx") {
+      //   lowerExtr(CI, &I, AMXOpcode::EXTRY, 0 /*isDestY*/, 0 /*IsSrcXY*/); // need extrv
+      // } else if (Callee->getName() == "amx_mvzy") {
+      //   lowerExtr(CI, &I, AMXOpcode::EXTRX, 1 /*isDestY*/, 0 /*IsSrcXY*/); // need extrv
+      // } 
+      
+      // Floating-point ops
+      else if (Callee->getName() == "amx_fma64_mat") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMA64, 0 /*ALUOp*/, 0 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fma32_mat") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMA32, 0 /*ALUOp*/, 0 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fma16_mat") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMA16, 0 /*ALUOp*/, 0 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fms64_mat") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMS64, 0 /*ALUOp*/, 0 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fms32_mat") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMS32, 0 /*ALUOp*/, 0 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fms16_mat") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMS16, 0 /*ALUOp*/, 0 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fma64_vec") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMA64, 0 /*ALUOp*/, 1 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fma32_vec") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMA32, 0 /*ALUOp*/, 1 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fma16_vec") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMA16, 0 /*ALUOp*/, 1 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fms64_vec") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMS64, 0 /*ALUOp*/, 1 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fms32_vec") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMS32, 0 /*ALUOp*/, 1 /*isVectorOp*/);
+      } else if (Callee->getName() == "amx_fms16_vec") {
+        lowerFloatOp(CI, &I, AMXOpcode::FMS16, 0 /*ALUOp*/, 1 /*isVectorOp*/);
       } else {
         llvm_unreachable("don't know how to lower this intrinsic");
       }

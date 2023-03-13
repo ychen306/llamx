@@ -19,7 +19,7 @@ void matmul32(float Z[16][16], float X[16][16], float Y[16][16]) {
   for (int i = 0; i < 16; i++) {
     amx_ldx(reg, X[i]);
     amx_ldy(reg, Y[i]);
-    amx_fma32(reg, reg, reg);
+    amx_fma32_mat(reg, reg, reg);
   }
   for (int j = 0; j < 16; j++) {
     amx_stz(Z[j], 4 * j + reg);
