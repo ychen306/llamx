@@ -3,9 +3,7 @@
 // RUN: cc %t -o %t
 // RUN: %t | FileCheck %s
 
-// CHECK: ldst_x: PASS
-// CHECK: ldst_y: PASS
-// CHECK: ldst_z: PASS
+// CHECK: ldst_zi: PASS
 
 #include "aarch64.h"
 #include "amx.h"
@@ -34,8 +32,5 @@ void ldst_test(ldfn_t ldfn, stfn_t stfn, char* test_name) {
 }
 
 int main() {
-  ldst_test(amx_ldx, amx_stx, "ldst_x");
-  ldst_test(amx_ldy, amx_sty, "ldst_y");
-  ldst_test(amx_ldz, amx_stz, "ldst_z");
-  // ldst_test(amx_ldzi, amx_stzi, "ldst_zi");
+  ldst_test(amx_ldzi, amx_stzi, "ldst_zi");
 }

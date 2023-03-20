@@ -4,6 +4,9 @@
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/InstIterator.h"
+#include <map>
 
 #include "LLAMX.h"
 
@@ -13,12 +16,19 @@ namespace {
 struct AMXLowering : public PassInfoMixin<AMXLowering> {
   PreservedAnalyses run(Function &, FunctionAnalysisManager &);
 };
+struct AMXLowLevelRegAlloc : public PassInfoMixin<AMXLowLevelRegAlloc> {
+  PreservedAnalyses run(Function &, FunctionAnalysisManager &);
+};
 } // namespace
 
 static void buildPasses(PassBuilder &PB) {
   PB.registerPipelineParsingCallback(
       [](StringRef Name, FunctionPassManager &FPM,
          ArrayRef<PassBuilder::PipelineElement>) {
+        if (Name == "low-level-regalloc") {
+          FPM.addPass(AMXLowLevelRegAlloc());
+          return true;
+        }
         if (Name == "lower-amx") {
           FPM.addPass(AMXLowering());
           return true;
@@ -28,6 +38,7 @@ static void buildPasses(PassBuilder &PB) {
 
   PB.registerScalarOptimizerLateEPCallback(
       [](FunctionPassManager &FPM, OptimizationLevel) {
+        FPM.addPass(AMXLowLevelRegAlloc());
         FPM.addPass(AMXLowering());
       });
 }
@@ -227,6 +238,209 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
   for (auto *I : DeadInsts)
     I->eraseFromParent();
 
+  errs() << F << '\n';
+  return PreservedAnalyses::none();
+}
+
+namespace {
+
+enum RegType {
+  X, Y, Z, Z_PAIR, Z_COL, Z_COL2, Z_COL4, Z_COL8
+};
+
+struct OperandInfo {
+  bool IsUsed;
+  bool IsDefined;
+  RegType Ty;
+
+  static OperandInfo getDef(RegType Ty) {
+    return {
+      .IsUsed = false,
+      .IsDefined = true,
+      .Ty = Ty
+    };
+  }
+
+  static OperandInfo getUse(RegType Ty) {
+    return {
+      .IsUsed = true,
+      .IsDefined = false,
+      .Ty = Ty
+    };
+  }
+};
+
+struct RegInfo {
+  RegType Ty;
+  unsigned Number;
+  RegInfo(RegType Ty, unsigned Number) : Ty(Ty), Number(Number) {}
+  bool operator<(const RegInfo &Other) const {
+    return std::tie(Ty, Number) < std::tie(Other.Ty, Other.Number);
+  }
+  // TODO: this really depends on Ty
+  unsigned size() {
+    return 64;
+  }
+};
+
+class RegisterSpiller {
+  Function *F;
+  // Mapping <virtual reg> -> <alloca>
+  std::map<RegInfo, AllocaInst *> RegToMemMap;
+public:
+  RegisterSpiller(Function *F) : F(F) {}
+  bool isSpilled(RegInfo Virt) const {
+    return RegToMemMap.count(Virt);
+  }
+  void allocateMemory(RegInfo Virt) {
+    assert(!RegToMemMap.count(Virt));
+    BasicBlock &Entry = F->getEntryBlock();
+    auto &Ctx = F->getContext();
+    auto *Int8Ty = Type::getInt8Ty(Ctx);
+    auto *Int64Ty = Type::getInt64Ty(Ctx);
+    auto *Alloca = new AllocaInst(Int8Ty, 0, ConstantInt::get(Int64Ty, Virt.size()), "amx.spilled", Entry.getFirstNonPHI());
+    RegToMemMap[Virt] = Alloca;
+  }
+
+  void store(RegInfo Phys, RegInfo Virt, IRBuilderBase &IRB) {
+    auto Ty = Phys.Ty;
+    assert(Ty == Virt.Ty);
+    assert(RegToMemMap.count(Virt));
+    auto *Ptr = RegToMemMap[Virt];
+    auto &Ctx = F->getContext();
+    auto *Int64Ty = Type::getInt64Ty(Ctx);
+    if (Ty == RegType::X) {
+      emitAMX(AMXOpcode::STX, emitLoadStoreConfig(Ptr, ConstantInt::get(Int64Ty, Phys.Number), IRB), IRB);
+      return;
+    }
+    if (Ty == RegType::Y) {
+      emitAMX(AMXOpcode::STY, emitLoadStoreConfig(Ptr, ConstantInt::get(Int64Ty, Phys.Number), IRB), IRB);
+      return;
+    }
+    if (Ty == RegType::Z) {
+      emitAMX(AMXOpcode::STZ, emitLoadStoreConfig(Ptr, ConstantInt::get(Int64Ty, Phys.Number), IRB), IRB);
+      return;
+    }
+    llvm_unreachable("don't know how to store this register type");
+  }
+
+  // Reload a the virtual register onto the specified physical reg.
+  void reload(RegInfo Phys, RegInfo Virt, IRBuilderBase &IRB) {
+    auto Ty = Phys.Ty;
+    assert(Ty == Virt.Ty);
+    assert(RegToMemMap.count(Virt));
+    auto *Ptr = RegToMemMap[Virt];
+    auto &Ctx = F->getContext();
+    auto *Int64Ty = Type::getInt64Ty(Ctx);
+    if (Ty == RegType::X) {
+      emitAMX(AMXOpcode::LDX, emitLoadStoreConfig(Ptr, ConstantInt::get(Int64Ty, Phys.Number), IRB), IRB);
+      return;
+    }
+    if (Ty == RegType::Y) {
+      emitAMX(AMXOpcode::LDY, emitLoadStoreConfig(Ptr, ConstantInt::get(Int64Ty, Phys.Number), IRB), IRB);
+      return;
+    }
+    if (Ty == RegType::Z) {
+      emitAMX(AMXOpcode::LDZ, emitLoadStoreConfig(Ptr, ConstantInt::get(Int64Ty, Phys.Number), IRB), IRB);
+      return;
+    }
+    llvm_unreachable("don't know how to store this register type");
+  }
+};
+
+} // namespace
+
+// Given an LLAMX operation, returns the OperandInfo of the operands
+SmallVector<Optional<OperandInfo>, 4> getRegInfos(CallInst *CI) {
+  auto *Callee = CI->getCalledFunction();
+  if (!Callee)
+    return {};
+  if (Callee->getName() == "amx_ldx")
+    return {OperandInfo::getDef(RegType::X), None};
+  if (Callee->getName() == "amx_ldy")
+    return {OperandInfo::getDef(RegType::Y), None};
+  if (Callee->getName() == "amx_stx")
+    return {None, OperandInfo::getUse(RegType::X)};
+  if (Callee->getName() == "amx_sty")
+    return {None, OperandInfo::getUse(RegType::Y)};
+  if (Callee->getName() == "amx_ldz")
+    return {OperandInfo::getDef(RegType::Z), None};
+  if (Callee->getName() == "amx_stz")
+    return {None, OperandInfo::getUse(RegType::Z)};
+  if (Callee->getName() == "amx_ldzi")
+    return {OperandInfo::getDef(RegType::Z_PAIR), None};
+  if (Callee->getName() == "amx_stzi")
+    return {None, OperandInfo::getUse(RegType::Z_PAIR)};
+  return {};
+}
+
+void setRegs(CallInst *CI, ArrayRef<Optional<OperandInfo>> RegInfos,
+             ArrayRef<unsigned> PhysRegs) {
+  assert(RegInfos.size() == PhysRegs.size());
+  assert(CI->arg_size() == RegInfos.size());
+  for (auto [Info, PhysReg, Operand] : llvm::zip(RegInfos, PhysRegs, CI->args())) {
+    if (!Info)
+      continue;
+    auto *Ty = Operand.get()->getType();
+    Operand.set(ConstantInt::get(Ty, PhysReg));
+  }
+}
+
+unsigned getConstValue(Value *V) {
+  return cast<ConstantInt>(V)->getZExtValue();
+}
+
+PreservedAnalyses AMXLowLevelRegAlloc::run(Function &F, FunctionAnalysisManager &AM) {
+  RegisterSpiller Spiller(&F);
+  std::vector<Instruction *> Insts;
+  for (auto &I : instructions(F))
+    Insts.push_back(&I);
+
+  for (auto *I : Insts) {
+    auto *CI = dyn_cast<CallInst>(I);
+    if (!CI)
+      continue;
+    auto Infos = getRegInfos(CI);
+    // don't need to do anything if the instruction doesn't use any AMX registers
+    if (Infos.empty())
+      continue;
+
+    for (auto [Info, V] : zip(Infos, CI->args())) {
+      if (!Info)
+        continue;
+      RegInfo Virt(Info->Ty, getConstValue(V));
+      if (!Spiller.isSpilled(Virt))
+        Spiller.allocateMemory(Virt);
+    }
+
+    IRBuilder<> IRB(CI);
+
+    // Reload the used registers
+    for (auto [Info, V] : zip(Infos, CI->args())) {
+      if (!Info || !Info->IsUsed)
+        continue;
+      RegInfo Virt(Info->Ty, getConstValue(V));
+      RegInfo Phys(Info->Ty, 0);
+      assert(Spiller.isSpilled(Virt));
+      Spiller.reload(Phys, Virt, IRB);
+    }
+
+    // Store the defined registers
+    IRB.SetInsertPoint(I->getParent(), std::next(I->getIterator()));
+    for (auto [Info, V] : zip(Infos, CI->args())) {
+      if (!Info || !Info->IsDefined)
+        continue;
+      RegInfo Virt(Info->Ty, getConstValue(V));
+      RegInfo Phys(Info->Ty, 0);
+      assert(Spiller.isSpilled(Virt));
+      Spiller.store(Phys, Virt, IRB);
+    }
+
+    SmallVector<unsigned> PhysRegs(Infos.size(), 0);
+    setRegs(CI, Infos, PhysRegs);
+  }
+
+  errs() << "!!! done with register allocation\n";
   errs() << F << '\n';
   return PreservedAnalyses::none();
 }
