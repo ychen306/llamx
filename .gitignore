@@ -5,6 +5,7 @@ CMakeFiles/*
 test/*/Output/*
 *.out
 *.o
+*.s
 
 CMakelists.txt
 CMakeCache.txt

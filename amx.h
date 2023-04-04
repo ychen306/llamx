@@ -12,8 +12,8 @@ void amx_stzi(void *dst_ptr, unsigned src);
 
 // Moves
 void amx_mvxy(unsigned dst, unsigned src); // Move x register to y register
-void amx_mvxz(unsigned dst, unsigned src); // Move x register to z register
 void amx_mvyx(unsigned dst, unsigned src); // Move y register to x register
+void amx_mvxz(unsigned dst, unsigned src); // Move x register to z register
 void amx_mvyz(unsigned dst, unsigned src); // Move y register to z register
 void amx_mvzx(unsigned dst, unsigned src); // Move z register to x register
 void amx_mvzy(unsigned dst, unsigned src); // Move z register to y register

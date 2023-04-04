@@ -5,6 +5,10 @@
 
 // CHECK: mvxy: PASS
 // CHECK: mvyx: PASS
+// CHECK: mvxz: PASS
+// CHECK: mvyz: PASS
+// CHECK: mvzx: PASS
+// CHECK: mvzy: PASS
 
 #include "aarch64.h"
 #include "amx.h"
@@ -26,9 +30,9 @@ void mv_test(ldfn_t ldfn, stfn_t stfn, mvfn_t mvfn, char* test_name) {
   memset(ref+64, 'B', 64);
 
   AMX_SET();
-  ldfn(1, a);
-  mvfn(2, 1);
-  stfn(b, 2);
+  ldfn(65, a);
+  mvfn(66, 65);
+  stfn(b, 66);
   AMX_CLR();
 
   printf("%s: %s\n", test_name, memcmp(b, ref, 128) ? "FAIL" : "PASS");
@@ -36,9 +40,9 @@ void mv_test(ldfn_t ldfn, stfn_t stfn, mvfn_t mvfn, char* test_name) {
 
 int main() {
   mv_test(amx_ldx, amx_sty, amx_mvxy, "mvxy");
-  // mv_test(amx_ldx, amx_stz, amx_mvxz, "mvxz");
   mv_test(amx_ldy, amx_stx, amx_mvyx, "mvyx");
-  // mv_test(amx_ldy, amx_stz, amx_mvyz, "mvyz");
-  // mv_test(amx_ldz, amx_stx, amx_mvzx, "mvzx");
-  // mv_test(amx_ldz, amx_sty, amx_mvzy, "mvzy");
+  mv_test(amx_ldx, amx_stz, amx_mvxz, "mvxz");
+  mv_test(amx_ldy, amx_stz, amx_mvyz, "mvyz");
+  mv_test(amx_ldz, amx_stx, amx_mvzx, "mvzx");
+  mv_test(amx_ldz, amx_sty, amx_mvzy, "mvzy");
 }
