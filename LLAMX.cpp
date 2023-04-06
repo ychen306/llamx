@@ -56,7 +56,7 @@ static Value *emitLoadStoreConfig(Value *Ptr, Value *Reg, IRBuilderBase &IRB) {
   auto *Int64Ty = IRB.getInt64Ty();
   auto *Addr = IRB.CreatePointerCast(Ptr, Int64Ty);
   auto *RegNum = IRB.CreateZExt(Reg, Int64Ty);
-  auto *Operand = IRB.CreateOr(Addr, IRB.CreateShl(RegNum, 56), "myor");
+  auto *Operand = IRB.CreateOr(Addr, IRB.CreateShl(RegNum, 56));
   return Operand;
 }
 
@@ -120,6 +120,31 @@ static void lowerLoad(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode)
   emitAMX(Opcode, emitLoadStoreConfig(SrcPtr, DestReg, IRB), IRB);
 }
 
+// Lower loads of z columns. numCols must be 1, 2, 4, or 8.
+static void lowerLoadZCols(CallInst *CI, Instruction *InsertBefore, int numCols) {
+  auto *DestCol = CI->getArgOperand(0);
+  auto *SrcPtr = CI->getArgOperand(1);
+
+  assert(DestCol->getType()->isIntegerTy(32));
+  assert(isa<ConstantInt>(DestCol));
+  assert(SrcPtr->getType()->isPointerTy());
+
+  IRBuilder<> IRB(InsertBefore);
+
+  int numRegs = 8 * numCols;
+  int stride = 8 / numCols;
+
+  auto *Int64Ty = IRB.getInt64Ty();
+  auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+
+  for (int i = 0; i < numRegs; i++) {
+    auto *DestReg = IRB.CreateAdd(DestCol, ConstantInt::get(Int64Ty, stride * i));
+    ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+    auto* OffsetPtr = IRB.CreateGEP(ArrayTy, SrcPtr, Idx, "amx_zcol");
+    emitAMX(AMXOpcode::LDZ, emitLoadStoreConfig(OffsetPtr, DestReg, IRB), IRB);
+  }
+}
+
 static void lowerStore(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode) {
   auto *DestPtr = CI->getArgOperand(0);
   auto *SrcReg = CI->getArgOperand(1);
@@ -131,6 +156,31 @@ static void lowerStore(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode
   IRBuilder<> IRB(InsertBefore);
 
   emitAMX(Opcode, emitLoadStoreConfig(DestPtr, SrcReg, IRB), IRB);
+}
+
+// Lower stores of z columns. numCols must be 1, 2, 4, or 8.
+static void lowerStoreZCols(CallInst *CI, Instruction *InsertBefore, int numCols) {
+  auto *DestPtr = CI->getArgOperand(0);
+  auto *SrcCol = CI->getArgOperand(1);
+
+  assert(SrcCol->getType()->isIntegerTy(32));
+  assert(isa<ConstantInt>(SrcCol));
+  assert(DestPtr->getType()->isPointerTy());
+
+  IRBuilder<> IRB(InsertBefore);
+
+  int numRegs = 8 * numCols;
+  int stride = 8 / numCols;
+
+  auto *Int64Ty = IRB.getInt64Ty();
+  auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+
+  for (int i = 0; i < numRegs; i++) {
+    auto *SrcReg = IRB.CreateAdd(SrcCol, ConstantInt::get(Int64Ty, stride * i));
+    ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+    auto* OffsetPtr = IRB.CreateGEP(ArrayTy, DestPtr, Idx, "amx_zcol");
+    emitAMX(AMXOpcode::STZ, emitLoadStoreConfig(OffsetPtr, SrcReg, IRB), IRB);
+  }
 }
 
 static void lowerFloatOp(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode, int ALUOp, int isVectorOp) {
@@ -205,7 +255,7 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
       if (!Callee || !Callee->getName().startswith("amx_"))
         continue;
 
-      // Loads and stores
+      // Simple loads and stores
       if (Callee->getName() == "amx_ldx") {
         lowerLoad(CI, &I, AMXOpcode::LDX);
       } else if (Callee->getName() == "amx_ldy") {
@@ -223,22 +273,39 @@ PreservedAnalyses AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
       } else if (Callee->getName() == "amx_stzi") {
         lowerStore(CI, &I, AMXOpcode::STZI);
       } 
+
+      // Column loads and stores
+      else if (Callee->getName() == "amx_ldz_col") {
+        lowerLoadZCols(CI, &I, 1);
+      } else if (Callee->getName() == "amx_ldz_col2") {
+        lowerLoadZCols(CI, &I, 2);
+      } else if (Callee->getName() == "amx_ldz_col4") {
+        lowerLoadZCols(CI, &I, 4);
+      } else if (Callee->getName() == "amx_ldz_col8") {
+        lowerLoadZCols(CI, &I, 8);
+      } else if (Callee->getName() == "amx_stz_col") {
+        lowerStoreZCols(CI, &I, 1);
+      } else if (Callee->getName() == "amx_stz_col2") {
+        lowerStoreZCols(CI, &I, 2);
+      } else if (Callee->getName() == "amx_stz_col4") {
+        lowerStoreZCols(CI, &I, 4);
+      } else if (Callee->getName() == "amx_stz_col8") {
+        lowerStoreZCols(CI, &I, 8);
+      } 
       
       // Moves
       else if (Callee->getName() == "amx_mvxy") {
         lowerExtr(CI, &I, AMXOpcode::EXTRY, 1 /*isDestY*/, 1 /*IsSrcXY*/);
       } else if (Callee->getName() == "amx_mvyx") {
         lowerExtr(CI, &I, AMXOpcode::EXTRX, 0 /*isDestY*/, 1 /*IsSrcXY*/);
-      } 
-
-      else if (Callee->getName() == "amx_mvxz") {
+      } else if (Callee->getName() == "amx_mvxz") {
         lowerMoveToZ(CI, &I, AMXOpcode::FMA64, 1 /*isSrcX*/);
       } else if (Callee->getName() == "amx_mvyz") {
         lowerMoveToZ(CI, &I, AMXOpcode::FMA64, 0 /*isSrcX*/);
       } else if (Callee->getName() == "amx_mvzx") {
-        lowerExtr(CI, &I, AMXOpcode::EXTRX, 0 /*isDestY*/, 0 /*IsSrcXY*/); // need extrv
+        lowerExtr(CI, &I, AMXOpcode::EXTRX, 0 /*isDestY*/, 0 /*IsSrcXY*/);
       } else if (Callee->getName() == "amx_mvzy") {
-        lowerExtr(CI, &I, AMXOpcode::EXTRX, 1 /*isDestY*/, 0 /*IsSrcXY*/); // need extrv
+        lowerExtr(CI, &I, AMXOpcode::EXTRX, 1 /*isDestY*/, 0 /*IsSrcXY*/);
       } 
       
       // Floating-point ops
@@ -390,6 +457,33 @@ public:
       }
       return;
     }
+    if (Ty == RegType::Z_COL2) {
+      for (int i = 0; i < 16; i++) {
+        auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+        ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+        auto* OffsetPtr = IRB.CreateGEP(ArrayTy, Ptr, Idx, "amx_zcol");
+        emitAMX(AMXOpcode::STZ, emitLoadStoreConfig(OffsetPtr, ConstantInt::get(Int64Ty, Phys.Number + 4 * i), IRB), IRB);
+      }
+      return;
+    }
+    if (Ty == RegType::Z_COL4) {
+      for (int i = 0; i < 32; i++) {
+        auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+        ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+        auto* OffsetPtr = IRB.CreateGEP(ArrayTy, Ptr, Idx, "amx_zcol");
+        emitAMX(AMXOpcode::STZ, emitLoadStoreConfig(OffsetPtr, ConstantInt::get(Int64Ty, Phys.Number + 2 * i), IRB), IRB);
+      }
+      return;
+    }
+    if (Ty == RegType::Z_COL8) {
+      for (int i = 0; i < 64; i++) {
+        auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+        ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+        auto* OffsetPtr = IRB.CreateGEP(ArrayTy, Ptr, Idx, "amx_zcol");
+        emitAMX(AMXOpcode::STZ, emitLoadStoreConfig(OffsetPtr, ConstantInt::get(Int64Ty, Phys.Number + i), IRB), IRB);
+      }
+      return;
+    }
     llvm_unreachable("don't know how to store this register type");
   }
 
@@ -426,6 +520,33 @@ public:
       }
       return;
     }
+    if (Ty == RegType::Z_COL2) {
+      for (int i = 0; i < 16; i++) {
+        auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+        ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+        auto* OffsetPtr = IRB.CreateGEP(ArrayTy, Ptr, Idx, "amx_zcol");
+        emitAMX(AMXOpcode::LDZ, emitLoadStoreConfig(OffsetPtr, ConstantInt::get(Int64Ty, Phys.Number + 4 * i), IRB), IRB);
+      }
+      return;
+    }
+    if (Ty == RegType::Z_COL4) {
+      for (int i = 0; i < 32; i++) {
+        auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+        ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+        auto* OffsetPtr = IRB.CreateGEP(ArrayTy, Ptr, Idx, "amx_zcol");
+        emitAMX(AMXOpcode::LDZ, emitLoadStoreConfig(OffsetPtr, ConstantInt::get(Int64Ty, Phys.Number + 2 * i), IRB), IRB);
+      }
+      return;
+    }
+    if (Ty == RegType::Z_COL8) {
+      for (int i = 0; i < 64; i++) {
+        auto* ArrayTy = ArrayType::get(Int64Ty, 8);
+        ArrayRef<Value*> Idx = ArrayRef<Value*>(ConstantInt::get(Int64Ty, i));
+        auto* OffsetPtr = IRB.CreateGEP(ArrayTy, Ptr, Idx, "amx_zcol");
+        emitAMX(AMXOpcode::LDZ, emitLoadStoreConfig(OffsetPtr, ConstantInt::get(Int64Ty, Phys.Number + i), IRB), IRB);
+      }
+      return;
+    }
     llvm_unreachable("don't know how to store this register type");
   }
 };
@@ -454,6 +575,23 @@ SmallVector<Optional<OperandInfo>, 4> getRegInfos(CallInst *CI) {
     return {OperandInfo::getDef(RegType::ZI), None};
   if (Callee->getName() == "amx_stzi")
     return {None, OperandInfo::getUse(RegType::ZI)};
+  
+  if (Callee->getName() == "amx_ldz_col")
+    return {OperandInfo::getDef(RegType::Z_COL), None};
+  if (Callee->getName() == "amx_ldz_col2")
+    return {OperandInfo::getDef(RegType::Z_COL2), None};
+  if (Callee->getName() == "amx_ldz_col4")
+    return {OperandInfo::getDef(RegType::Z_COL4), None};
+  if (Callee->getName() == "amx_ldz_col8")
+    return {OperandInfo::getDef(RegType::Z_COL8), None};
+  if (Callee->getName() == "amx_stz_col")
+    return {None, OperandInfo::getUse(RegType::Z_COL)};
+  if (Callee->getName() == "amx_stz_col2")
+    return {None, OperandInfo::getUse(RegType::Z_COL2)};
+  if (Callee->getName() == "amx_stz_col4")
+    return {None, OperandInfo::getUse(RegType::Z_COL4)};
+  if (Callee->getName() == "amx_stz_col8")
+    return {None, OperandInfo::getUse(RegType::Z_COL8)};
 
   if (Callee->getName() == "amx_mvxy")
     return {OperandInfo::getDef(RegType::Y), OperandInfo::getUse(RegType::X)};
