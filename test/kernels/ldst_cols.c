@@ -35,8 +35,8 @@ void ldst_test(ldfn_t ldfn, stfn_t stfn, int col, int ldst_size, char* test_name
 }
 
 int main() {
-  ldst_test(amx_ldz_col, amx_stz_col, 5, 512, "ldst_z_col");
-  ldst_test(amx_ldz_col2, amx_stz_col2, 3, 1024, "ldst_z_col2");
-  ldst_test(amx_ldz_col4, amx_stz_col4, 1, 2048, "ldst_z_col4");
-  ldst_test(amx_ldz_col8, amx_stz_col8, 0, 4096, "ldst_z_col8");
+  ldst_test(amx_ldz_col, amx_stz_col, 65, 512, "ldst_z_col");
+  ldst_test(amx_ldz_col2, amx_stz_col2, 66, 1024, "ldst_z_col2");
+  ldst_test(amx_ldz_col4, amx_stz_col4, 67, 2048, "ldst_z_col4");
+  ldst_test(amx_ldz_col8, amx_stz_col8, 68, 4096, "ldst_z_col8");
 }

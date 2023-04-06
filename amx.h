@@ -30,17 +30,17 @@ void amx_mvzx(unsigned dst, unsigned src); // Move z register to x register
 void amx_mvzy(unsigned dst, unsigned src); // Move z register to y register
 
 // Floating-point operations
-void amx_fma64_mat(unsigned dst, unsigned x_reg, unsigned y_reg); // Outer product, full fma only
-void amx_fma32_mat(unsigned dst, unsigned x_reg, unsigned y_reg); // Outer product, full fma only
-void amx_fma16_mat(unsigned dst, unsigned x_reg, unsigned y_reg); // Outer product, full fma only
-void amx_fms64_mat(unsigned dst, unsigned x_reg, unsigned y_reg); // Outer product, full fms only
-void amx_fms32_mat(unsigned dst, unsigned x_reg, unsigned y_reg); // Outer product, full fms only
-void amx_fms16_mat(unsigned dst, unsigned x_reg, unsigned y_reg); // Outer product, full fms only
-void amx_fma64_vec(unsigned dst, unsigned x_reg, unsigned y_reg); // Elementwise product, full fma only
-void amx_fma32_vec(unsigned dst, unsigned x_reg, unsigned y_reg); // Elementwise product, full fma only
-void amx_fma16_vec(unsigned dst, unsigned x_reg, unsigned y_reg); // Elementwise product, full fma only
-void amx_fms64_vec(unsigned dst, unsigned x_reg, unsigned y_reg); // Elementwise product, full fms only
-void amx_fms32_vec(unsigned dst, unsigned x_reg, unsigned y_reg); // Elementwise product, full fms only
-void amx_fms16_vec(unsigned dst, unsigned x_reg, unsigned y_reg); // Elementwise product, full fms only
+void amx_fma64_mat(unsigned z_col, unsigned x_reg, unsigned y_reg); // Outer product, full fma only
+void amx_fma32_mat(unsigned z_col2, unsigned x_reg, unsigned y_reg); // Outer product, full fma only
+void amx_fma16_mat(unsigned z_col4, unsigned x_reg, unsigned y_reg); // Outer product, full fma only
+void amx_fms64_mat(unsigned z_col, unsigned x_reg, unsigned y_reg); // Outer product, full fms only
+void amx_fms32_mat(unsigned z_col2, unsigned x_reg, unsigned y_reg); // Outer product, full fms only
+void amx_fms16_mat(unsigned z_col4, unsigned x_reg, unsigned y_reg); // Outer product, full fms only
+void amx_fma64_vec(unsigned z_reg, unsigned x_reg, unsigned y_reg); // Elementwise product, full fma only
+void amx_fma32_vec(unsigned z_reg, unsigned x_reg, unsigned y_reg); // Elementwise product, full fma only
+void amx_fma16_vec(unsigned z_reg, unsigned x_reg, unsigned y_reg); // Elementwise product, full fma only
+void amx_fms64_vec(unsigned z_reg, unsigned x_reg, unsigned y_reg); // Elementwise product, full fms only
+void amx_fms32_vec(unsigned z_reg, unsigned x_reg, unsigned y_reg); // Elementwise product, full fms only
+void amx_fms16_vec(unsigned z_reg, unsigned x_reg, unsigned y_reg); // Elementwise product, full fms only
 
 #endif // AMX_H
