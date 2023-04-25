@@ -22,6 +22,10 @@ void kernel(float Zcol2[256], float Z[16][16], float X[16][16], float Y[16][16])
     amx_ldx(virtreg, X[i]);
     amx_ldy(virtreg, Y[i]);
     amx_ldz(virtreg, Z[i]);
+  }
+  #pragma clang loop unroll(full)
+  for (int i = 0; i < 16; i++) {
+    int virtreg = 65 + i;
     amx_fma32_mat(65, virtreg, virtreg);
     amx_fma32_vec(virtreg, virtreg, virtreg);
   }
