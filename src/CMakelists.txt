@@ -1,1 +1,1 @@
-add_library(LLAMX MODULE LLAMX.cpp Lowering.cpp)
+add_library(LLAMX MODULE LLAMX.cpp Lowering.cpp RegAlloc.cpp)

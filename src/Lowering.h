@@ -5,6 +5,11 @@
 #include "llvm/Passes/PassBuilder.h"
 
 using namespace llvm;
+namespace llamx {
+  struct AMXLowering : public llvm::PassInfoMixin<AMXLowering> {
+    llvm::PreservedAnalyses run(llvm::Function &, llvm::FunctionAnalysisManager &);
+  };
+}
 
 Value *emitConfig(std::list<std::pair<Value*, int>> inputs, IRBuilderBase &IRB);
 
@@ -22,10 +27,5 @@ void lowerFloatOp(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode, int
 void lowerMoveToZ(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode, int isSrcX);
 void lowerExtr(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode, int isDestY, int isSrcXY);
 
-namespace llamx {
-  struct AMXLowering : public llvm::PassInfoMixin<AMXLowering> {
-    llvm::PreservedAnalyses run(llvm::Function &, llvm::FunctionAnalysisManager &);
-  };
-}
 
 #endif // LOWERING_H
