@@ -11,6 +11,6 @@ else
   exit 1
 fi
 
-LIBRARY_PATH=@CMAKE_BINARY_DIR@/libLLAMX.so
+LIBRARY_PATH=@CMAKE_SOURCE_DIR@/lib/libLLAMX.so
 
 exec $clang -fpass-plugin=$LIBRARY_PATH -Xclang -load -Xclang $LIBRARY_PATH $@

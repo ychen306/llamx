@@ -1,5 +1,5 @@
-// RUN: source path.sh
-// RUN: llamx-clang %s -c -O1 -I %S/../.. -o %t
+// RUN: source %S/path.sh
+// RUN: %llamx-clang %s -o %t
 // RUN: cc %t -o %t
 // RUN: %t | FileCheck %s
 

@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec opt -load-pass-plugin @CMAKE_BINARY_DIR@/libLLAMX.so $@
+exec opt -load-pass-plugin @CMAKE_SOURCE_DIR@/lib/libLLAMX.so $@

@@ -21,20 +21,22 @@ link_directories(${LLVM_LIBRARY_DIRS})
 add_definitions(-fno-rtti)
 add_definitions(-std=c++14)
 
-add_library(LLAMX MODULE LLAMX.cpp)
+add_subdirectory(src)
+
+set_target_properties(LLAMX PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
 
 if(APPLE)
   set_target_properties(LLAMX PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
 endif(APPLE)
 
 configure_file(${CMAKE_SOURCE_DIR}/utils/llamx-clang.in
-               ${CMAKE_BINARY_DIR}/llamx-clang)
+               ${CMAKE_SOURCE_DIR}/llamx-clang)
 
 configure_file(${CMAKE_SOURCE_DIR}/utils/llamx-clang.in
-               ${CMAKE_BINARY_DIR}/llamx-clang++)
+               ${CMAKE_SOURCE_DIR}/llamx-clang++)
 
 configure_file(${CMAKE_SOURCE_DIR}/utils/llamx-opt.in
-               ${CMAKE_BINARY_DIR}/llamx-opt)
+               ${CMAKE_SOURCE_DIR}/llamx-opt)
 
 configure_file(${CMAKE_SOURCE_DIR}/test/lit.site.cfg.in
-               ${CMAKE_BINARY_DIR}/test/lit.site.cfg)
+               ${CMAKE_SOURCE_DIR}/test/lit.site.cfg)

@@ -1,13 +1,11 @@
 .*
 build/*
-misc/*
-CMakeFiles/*
 test/*/Output/*
 *.out
 *.o
 *.s
 
-CMakelists.txt
+CMakeFiles
 CMakeCache.txt
 cmake_install.cmake
 compile_commands.json
