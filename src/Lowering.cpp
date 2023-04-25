@@ -1,10 +1,5 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InlineAsm.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/InstIterator.h"
-#include <map>
 
 #include "LLAMX.h"
 #include "Lowering.h"
