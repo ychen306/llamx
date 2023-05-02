@@ -207,7 +207,7 @@ void lowerExtr(CallInst *CI, Instruction *InsertBefore, AMXOpcode Opcode, int is
 }
 
 PreservedAnalyses llamx::AMXLowering::run(Function &F, FunctionAnalysisManager &AM) {
-  errs() << "!!! processing " << F.getName() << '\n';
+  // errs() << "!!! processing " << F.getName() << '\n';
   std::vector<Instruction *> DeadInsts;
   for (auto &BB : F) {
     for (auto &I : BB) {
@@ -307,6 +307,6 @@ PreservedAnalyses llamx::AMXLowering::run(Function &F, FunctionAnalysisManager &
   for (auto *I : DeadInsts)
     I->eraseFromParent();
 
-  errs() << F << '\n';
+  // errs() << F << '\n';
   return PreservedAnalyses::none();
 }

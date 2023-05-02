@@ -53,6 +53,9 @@ struct RegInfo {
   bool operator<(const RegInfo &Other) const {
     return std::tie(Ty, Number) < std::tie(Other.Ty, Other.Number);
   }
+  bool operator==(const RegInfo &Other) const {
+    return Ty == Other.Ty && Number == Other.Number;
+  }
   unsigned size() {
     switch (Ty) {
       case X:

@@ -1,7 +1,9 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/InstIterator.h"
+#include "llvm/IR/CFG.h"
 #include <map>
+#include <deque>
 
 #include "LLAMX.h"
 #include "Lowering.h"
@@ -243,7 +245,151 @@ unsigned getConstValue(Value *V) {
   return cast<ConstantInt>(V)->getZExtValue();
 }
 
+class BBLivenessNode {
+  BasicBlock *BB;
+  // instruction -> live vars before instruction
+  std::map<Instruction *, std::set<RegInfo>> *liveVarsMap;
+  bool changed = false;
+
+  void record(Instruction *I, std::set<RegInfo> liveVarsBeforeI) {
+    // errs() << "record liveVars: ";
+    // for (auto var : liveVarsBeforeI) {
+    //   errs() << "(" << var.Ty << " " << var.Number << ") ";
+    // }
+    // errs() << "\nfor instruction: " << *I << '\n';
+    std::set<RegInfo> prev = (*liveVarsMap)[I];
+    (*liveVarsMap)[I] = liveVarsBeforeI;
+    if (prev != liveVarsBeforeI) changed = true;
+  }
+
+public:
+  std::set<RegInfo> in;
+  std::set<RegInfo> out;
+  BBLivenessNode(BasicBlock *BB, std::map<Instruction *, std::set<RegInfo>> *liveVarsMap) : BB(BB), liveVarsMap(liveVarsMap) {}
+
+  bool transfer() {
+    errs() << ">> transfer BB ";
+    BB->printAsOperand(errs(), false);
+    errs() << "\n";
+    std::set<RegInfo> cur = in;
+    changed = false;
+
+    std::deque<Instruction *> Insts;
+    for (auto &I : *BB)
+      Insts.push_front(&I);
+    
+    for (auto *I : Insts) {
+      auto *CI = dyn_cast<CallInst>(I);
+      if (!CI) {
+        record(I, cur);
+        continue;
+      }
+      auto Infos = getRegInfos(CI);
+      // don't need to do anything if the instruction doesn't use any AMX registers
+      if (Infos.empty()) {
+        record(I, cur);
+        continue;
+      }
+
+      // errs() << "here\n";
+
+      std::set<RegInfo> defs;
+      std::set<RegInfo> uses;
+
+      for (auto [OpInfo, V] : zip(Infos, CI->args())) {
+        if (!OpInfo) continue;
+        RegInfo Virt(OpInfo->Ty, getConstValue(V));
+        if (OpInfo->IsUsed) uses.insert(Virt);
+        if (OpInfo->IsDefined) defs.insert(Virt);
+      }
+
+      // cur = (cur - defs) U uses
+      for (auto reg : defs) {
+        cur.erase(reg);
+      }
+      for (auto reg : uses) {
+        cur.insert(reg);
+      }
+      record(I, cur);
+    }
+
+    out = cur;
+
+    return changed;
+  }
+};
+
+class LivenessAnalyzer {
+  Function *F;
+  std::map<BasicBlock *, BBLivenessNode *> nodes;
+  std::deque<BasicBlock *> worklist;
+
+public:
+  std::map<Instruction *, std::set<RegInfo>> liveVarsMap;
+  LivenessAnalyzer(Function *F) : F(F) {}
+
+  void analyze() {
+    BasicBlock &entry = F->back();
+    for (auto &BB : *F) {
+      BBLivenessNode* node = new BBLivenessNode(&BB, &liveVarsMap);
+      // TODO: fix memory issues!
+      nodes[&BB] = node;
+      // if (&BB != &entry) 
+      worklist.push_front(&BB);
+    }
+    
+    while (!worklist.empty()) {
+      auto BB = worklist.front();
+      // errs() << ">> processing BB ";
+      // BB->printAsOperand(errs(), false);
+      // errs() << "\n";
+      worklist.pop_front();
+      std::set<RegInfo> newIn;
+      for (auto successor : successors(BB)) {
+        BBLivenessNode* node = nodes[successor];
+        for (auto reg : node->out) {
+          newIn.emplace(reg);
+        }
+      }
+      nodes[BB]->in = newIn;
+      if (nodes[BB]->transfer()) {
+        for (auto predecessor : predecessors(BB)) {
+          // errs() << ">> queueing BB ";
+          // BB->printAsOperand(errs(), false);
+          // errs() << "\n";
+          // TODO: insert only if not already present
+          worklist.push_back(predecessor);
+        }
+      }
+    }
+  }
+};
+
 PreservedAnalyses llamx::AMXLowLevelRegAlloc::run(Function &F, FunctionAnalysisManager &AM) {
+  errs() << "!!! starting register allocation\n";
+  errs() << F << '\n';
+
+
+  if (F.getName() == "kernel") {
+    errs() << "!!! analyzing " << F.getName() << '\n';
+    LivenessAnalyzer Analyzer(&F);
+    Analyzer.analyze();
+
+    for (auto &BB : F) {
+      errs() << "\n>> annotated BB ";
+      BB.printAsOperand(errs(), false);
+      errs() << "\n";
+      for (auto &I : BB) {
+        auto liveVars = Analyzer.liveVarsMap[&I];
+        errs() << "liveVars: ";
+        for (auto var : liveVars) {
+          errs() << "(" << var.Ty << " " << var.Number << ") ";
+        }
+        errs() << '\n' << I << '\n';
+      }
+    }
+  }
+
   RegisterSpiller Spiller(&F);
   std::vector<Instruction *> Insts;
   for (auto &I : instructions(F))
@@ -293,7 +439,7 @@ PreservedAnalyses llamx::AMXLowLevelRegAlloc::run(Function &F, FunctionAnalysisM
     setRegs(CI, Infos, PhysRegs);
   }
 
-  errs() << "!!! done with register allocation\n";
-  errs() << F << '\n';
+  // errs() << "!!! done with register allocation\n";
+  // errs() << F << '\n';
   return PreservedAnalyses::none();
 }
